@@ -2,8 +2,6 @@ name:
   distributed
 version:
   0.1.0.0
--- synopsis:
--- description:
 license:
   BSD3
 license-file:
@@ -17,14 +15,41 @@ build-type:
 cabal-version:
   >=1.16
 
-executable ping
+executable challenge
   main-is:
-    Ping.hs
+    Challenge.hs
   build-depends:
     base >=4.8 && <5,
-    distributed-process
-  -- other-modules:
-  -- other-extensions:
+    -- For instances based on Generic
+    binary >= 0.6.3.0,
+    bytestring,
+    containers,
+    distributed-process,
+    distributed-static,
+    exceptions,
+    filepath,
+    microlens >= 0.4.7.0,
+    microlens-ghc >= 0.4,
+    microlens-mtl >= 0.1,
+    microlens-th >= 0.4.1.0,
+    mtl,
+    network,
+    network-transport,
+    network-transport-tcp,
+    optparse-applicative,
+    random,
+    semigroups,
+    template-haskell
+  other-modules:
+    Control.Monad.HandleMsg
+    Data.MsgId
+    Data.RandomNumber
+    Data.StrictPair
+    DistribUtils
+    Challenge.Node
+    Challenge.Types
+    Challenge.Worker
+    Challenge.Worker.Types
   hs-source-dirs:
     src
   default-language:
@@ -35,5 +60,6 @@ executable ping
     -fno-warn-type-defaults
     -fno-warn-name-shadowing
     -rtsopts
-    -main-is Ping
+    -threaded
+    -main-is Challenge
 
