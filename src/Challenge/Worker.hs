@@ -17,6 +17,7 @@
 {-# LANGUAGE DoAndIfThenElse            #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImplicitParams             #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE RankNTypes                 #-}
@@ -45,7 +46,7 @@ import Data.Typeable (Typeable)
 import GHC.Generics (Generic)
 import System.IO
 
-import Control.Distributed.Process hiding (bracket)
+import Control.Distributed.Process.Ext hiding (bracket)
 import Control.Distributed.Process.Node (initRemoteTable)
 import Control.Distributed.Process.Serializable
 
@@ -115,16 +116,20 @@ prepareForSendingNextRandomMessage newCommunicationState = do
   wsLocalCommState          .= newCommunicationState
 
 -- | Monitor nodes and send 'NodeDisconnected' message if any of them disconnects.
-monitorNodes :: Traversable f => f NodeId -> SendPort NodeDisconnected -> Process ()
+monitorNodes
+  :: (Traversable f, ?debugLevel :: DebugLevel)
+  => f NodeId
+  -> SendPort NodeDisconnected
+  -> Process ()
 monitorNodes nodes msgSink =
   bracket (traverse monitorNode nodes) (traverse unmonitor) $ \_ ->
     forever $
       receiveWait
         [ match $ \(NodeMonitorNotification _ disconnectedNode _) -> do
-            say $ "[monitorNodes] node disconnected: " ++ show disconnectedNode
+            sayDebug $ "[monitorNodes] node disconnected: " ++ show disconnectedNode
             sendChan msgSink $ NodeDisconnected disconnectedNode
         , matchAny $ \msg ->
-            say $ "[monitorNodes] ignoring message: " ++ show msg
+            sayDebug $ "[monitorNodes] ignoring message: " ++ show msg
         ]
 
 sendTicks :: (Serializable a, Show a) => Microseconds -> (MsgId -> a) -> SendPort a -> Process ()
@@ -132,7 +137,6 @@ sendTicks delayInterval mkMsg msgSink = go initMsgId
   where
     go msgId = do
       liftIO $ threadDelay $ unMicroseconds delayInterval
-      liftIO $ putStrLn $ "[sendTicks] sending tick " ++ show msgId
       sendChan msgSink $ mkMsg msgId
       go $! incrementMsgId msgId
 
@@ -143,9 +147,9 @@ notifyGracePeriod WorkerConfig{wcfgSendInterval, wcfgWaitInterval} sink = do
   liftIO $ threadDelay $ unMicroseconds wcfgWaitInterval
   sendChan sink GracePeriodEnded
 
-reportResult :: MonadIO m => WorkerState -> m ()
+reportResult :: (MonadIO m, ?debugLevel :: DebugLevel) => WorkerState -> m ()
 reportResult WorkerState{_wsPeers, _wsLocalCommState} = liftIO $ do
-  hPutStrLn stderr $
+  hPutStrLnDebug stderr $
     "This node sent " ++
     show (nextExpectedMsgIdToMesagesReceived $ _csNextExpectedMsgId _wsLocalCommState) ++
     " acknowledged messages"
@@ -162,7 +166,11 @@ reportResult WorkerState{_wsPeers, _wsLocalCommState} = liftIO $ do
     nextExpectedMsgIdToMesagesReceived :: MsgId -> Int
     nextExpectedMsgIdToMesagesReceived msgId = max (unMsgId msgId - 1) 0
 
-worker :: WorkerConfig -> ReceivePort PresenceAnnouncement -> Process ()
+worker
+  :: (?debugLevel :: DebugLevel)
+  => WorkerConfig
+  -> ReceivePort PresenceAnnouncement
+  -> Process ()
 worker cfg@WorkerConfig{wcfgRandomSeed, wcfgPeers, wcfgTickInterval, wcfgPeerSynchronizationTickInterval} announcementsSource = do
   mypid <- getSelfPid
   let mynid = processNodeId mypid
@@ -230,13 +238,13 @@ worker cfg@WorkerConfig{wcfgRandomSeed, wcfgPeers, wcfgTickInterval, wcfgPeerSyn
       handleCommunication state =
         case state ^. wsCommunicationMode of
           Done -> do
-            say "[worker.handleCommunication] Done"
+            sayDebug "[worker.handleCommunication] Done"
             reportResult state
             terminateNode =<< getSelfNode
             pure state
           _    -> do
             msg <- receiveChan mergedChannel
-            say $ "[worker.handleCommunication] got message " ++ show msg
+            sayDebug $ "[worker.handleCommunication] got message " ++ show msg
             runHandleMsgM workerEnv state (handleMergedMessage msg) >>= handleCommunication
   void $ handleCommunication initWorkerState
 

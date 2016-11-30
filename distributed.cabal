@@ -39,8 +39,10 @@ executable challenge
     optparse-applicative,
     random,
     semigroups,
-    template-haskell
+    template-haskell,
+    transformers
   other-modules:
+    Control.Distributed.Process.Ext
     Control.Monad.HandleMsg
     Data.MsgId
     Data.RandomNumber

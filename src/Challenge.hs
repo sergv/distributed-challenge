@@ -12,6 +12,7 @@
 --
 ----------------------------------------------------------------------------
 
+{-# LANGUAGE ImplicitParams      #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -26,8 +27,7 @@ import qualified Data.Set as S
 import Options.Applicative hiding ((<**>))
 import System.IO
 
--- Cloud Haskell, networking, transport
-import Control.Distributed.Process
+import Control.Distributed.Process.Ext
 import Network.Transport (EndPointAddress(..))
 
 import Challenge.Node
@@ -35,8 +35,9 @@ import Challenge.Types
 import Challenge.Worker
 
 data NodeConfig = NodeConfig
-  { ncfgWorker   :: WorkerConfig
-  , ncfgEndPoint :: EndPointConfig
+  { ncfgWorker     :: WorkerConfig
+  , ncfgEndPoint   :: EndPointConfig
+  , ncfgDebugLevel :: DebugLevel
   } deriving (Show, Eq, Ord)
 
 endPointOpts :: Parser EndPointConfig
@@ -104,6 +105,14 @@ nodeOpts :: Parser (IO NodeConfig)
 nodeOpts = NodeConfig
   <$$> workerOpts
   <**> (pure <$> endPointOpts)
+  <**> (pure <$>
+        option (eitherReader readDebugLevel)
+          ( long "debug-messages" <>
+            metavar "{on, off}" <>
+            value Off <>
+            help "whether to enable debug logging"))
+
+
 
 nodeInfo :: ParserInfo (IO NodeConfig)
 nodeInfo = info
@@ -128,15 +137,16 @@ readNodes = S.fromList . map (NodeId . EndPointAddress) . C8.lines
 main :: IO ()
 main = do
   config <- join $ execParser progInfo
-  hPutStrLn stderr $ "Config = " ++ show config
-  hFlush stdout
   case config of
-    Node NodeConfig{ncfgEndPoint, ncfgWorker} ->
+    Node NodeConfig{ncfgEndPoint, ncfgWorker, ncfgDebugLevel} ->
       handle
         (\(e :: SomeException) -> do
           hFlush stdout
           hFlush stderr
           hPutStrLn stderr $ "Got exception: " ++ show e) $ do
+        -- putStrLn $ "ncfgDebugLevel = " ++ show ncfgDebugLevel
+        let ?debugLevel = ncfgDebugLevel
+        hPutStrLnDebug stderr $ "Config = " ++ show config
         runNode workerRemoteTable ncfgEndPoint $ worker ncfgWorker
         hPutStrLn stderr "Done running node"
 

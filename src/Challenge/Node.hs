@@ -14,6 +14,7 @@
 
 {-# LANGUAGE DeriveDataTypeable  #-}
 {-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE ImplicitParams      #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -29,7 +30,7 @@ import Data.Typeable
 import GHC.Generics (Generic)
 import System.IO
 
-import Control.Distributed.Process
+import Control.Distributed.Process.Ext
 import Control.Distributed.Process.Node
 import Control.Distributed.Process.Serializable
 
@@ -62,7 +63,7 @@ data LoggerShutdownStarted = LoggerShutdownStarted
 
 instance Binary LoggerShutdownStarted
 
-addLogger :: Process ProcessId
+addLogger :: (?debugLevel :: DebugLevel) => Process ProcessId
 addLogger = do
   newLoggerPid <- spawnLocal logRequests
   loggerPid <- whereis "logger"
@@ -74,14 +75,14 @@ addLogger = do
     logRequests = do
       continue <- receiveWait
         [ match $ \(_time :: String, pid :: ProcessId, msg :: String) -> do
-            liftIO $ hPutStrLn stderr $ show pid ++ ": " ++ msg
+            liftIO $ hPutStrLnDebug stderr $ show pid ++ ": " ++ msg
             pure True
         , match $ \(LoggerShutdown requester) -> do
             liftIO $ hFlush stderr
             send requester LoggerShutdownStarted
             pure False
         , matchAny $ \msg -> do
-            say $ "[node logger] ignoring message: " ++ show msg
+            sayDebug $ "[node logger] ignoring message: " ++ show msg
             pure True
         ]
       when continue
@@ -95,12 +96,15 @@ flushLogger loggerPid = do
   LoggerShutdownStarted <- expect
   pure ()
 
-nodeKeeperProcess :: (Show a, Serializable a) => (ReceivePort a -> Process ()) -> Process ()
+nodeKeeperProcess
+  :: (Show a, Serializable a, ?debugLevel :: DebugLevel)
+  => (ReceivePort a -> Process ())
+  -> Process ()
 nodeKeeperProcess worker = do
   loggerPid <- addLogger
   nid       <- getSelfNode
   pid       <- getSelfPid
-  say $ "Started node keeper on node " ++ show nid ++ " with pid " ++ show pid
+  sayDebug $ "Started node keeper on node " ++ show nid ++ " with pid " ++ show pid
   register nodeKeeperId pid
   (forwardsSink, forwardsSource) <- newChan
   void $ spawnLocal $ worker forwardsSource
@@ -112,21 +116,21 @@ nodeKeeperProcess worker = do
         go = do
           continue <- receiveWait
             [ match $ \msg -> do
-                say $ "[nodeKeeper] forwarding message to worker: " ++ show msg
+                sayDebug $ "[nodeKeeper] forwarding message to worker: " ++ show msg
                 sendChan forwardsSink msg
                 pure True
             , match $ \msg@(TerminateNode _) -> do
-                say $ "[nodeKeeper] terminating node by request " ++ show msg
+                sayDebug $ "[nodeKeeper] terminating node by request " ++ show msg
                 pure False
             , matchAny $ \msg -> do
-                say $ "[nodeKeeper] ignoring message: " ++ show msg
+                sayDebug $ "[nodeKeeper] ignoring message: " ++ show msg
                 pure True
             ]
           when continue
             go
 
 runNode
-  :: (Show a, Serializable a)
+  :: (Show a, Serializable a, ?debugLevel :: DebugLevel)
   => RemoteTable
   -> EndPointConfig
   -> (ReceivePort a -> Process ())
