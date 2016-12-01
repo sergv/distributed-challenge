@@ -12,7 +12,7 @@ set -o pipefail
 
 #tick_interval=250000
 tick_interval=1
-peer_sync_interval=3
+peer_sync_interval=2
 #host="10.10.10.2"
 host="127.0.0.1"
 port="${1:-8888}"
@@ -26,6 +26,7 @@ shift 1
     --host "$host" \
     --port "$port" \
     --nodes nodes.txt \
+    --debug-messages=off \
     --tick-interval "$tick_interval" \
     --peer-synchronization-interval "$peer_sync_interval" "${@}" | tee "/tmp/node-$port"
 
