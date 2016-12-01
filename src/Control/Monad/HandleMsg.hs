@@ -14,15 +14,17 @@
 
 {-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImplicitParams             #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 
 module Control.Monad.HandleMsg
   ( HandleMsgM
   , sendTo
   , runHandleMsgM
+  , debugLog
   ) where
 
-import Control.Distributed.Process
+import Control.Distributed.Process.Ext
 import Control.Distributed.Process.Serializable
 import Control.Monad.RWS
 import Data.Foldable
@@ -32,7 +34,7 @@ data SendRequest = forall a. (Show a, Serializable a) =>
 
 deriving instance Show SendRequest
 
-newtype HandleMsgM r s a = HandleMsgM (RWS r [SendRequest] s a)
+newtype HandleMsgM r s a = HandleMsgM (RWS r ([SendRequest], [String]) s a)
   deriving
     ( Functor
     , Applicative
@@ -42,12 +44,20 @@ newtype HandleMsgM r s a = HandleMsgM (RWS r [SendRequest] s a)
     )
 
 sendTo :: (Show a, Serializable a) => a -> SendPort a -> HandleMsgM r s ()
-sendTo msg dest = HandleMsgM $ tell [SendRequest msg dest]
+sendTo msg dest = HandleMsgM $ tell ([SendRequest msg dest], mempty)
 
-runHandleMsgM :: r -> s -> HandleMsgM r s () -> Process s
+debugLog :: String -> HandleMsgM r s ()
+debugLog msg = HandleMsgM $ tell (mempty, [msg])
+
+runHandleMsgM
+  :: (?debugLevel :: DebugLevel)
+  => r
+  -> s
+  -> HandleMsgM r s () -> Process s
 runHandleMsgM r s (HandleMsgM action) = do
-  let ((), s', msgs) = runRWS action r s
+  let ((), s', (msgs, traces)) = runRWS action r s
   for_ msgs $ \(SendRequest msg dest) -> do
-    say $ "[runHandleMsgM] sending: " ++ show msg ++ " to " ++ show dest
+    say $ "[runHandleMsgM] sending: " ++ show msg ++ " to " ++ show (sendPortId dest)
     sendChan dest msg
+  for_ traces sayDebug
   pure s'

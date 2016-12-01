@@ -148,5 +148,5 @@ main = do
         let ?debugLevel = ncfgDebugLevel
         hPutStrLnDebug stderr $ "Config = " ++ show config
         runNode workerRemoteTable ncfgEndPoint $ worker ncfgWorker
-        hPutStrLn stderr "Done running node"
+        hPutStrLnDebug stderr "Done running node"
 

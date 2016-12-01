@@ -153,6 +153,7 @@ reportResult WorkerState{_wsPeers, _wsLocalCommState} = liftIO $ do
     "This node sent " ++
     show (nextExpectedMsgIdToMesagesReceived $ _csNextExpectedMsgId _wsLocalCommState) ++
     " acknowledged messages"
+  hPutStrLnDebug stderr $ "Node's accumulated state: " ++ show (_psCommunicationState <$> _wsPeers)
   putStrLn $ show (numberOfMessages, randomSum)
   where
     StrictPair (Sum numberOfMessages) (Sum randomSum) = mconcat
@@ -248,7 +249,7 @@ worker cfg@WorkerConfig{wcfgRandomSeed, wcfgPeers, wcfgTickInterval, wcfgPeerSyn
             runHandleMsgM workerEnv state (handleMergedMessage msg) >>= handleCommunication
   void $ handleCommunication initWorkerState
 
-handleMergedMessage :: MergedMessage -> HandleMsgM' ()
+handleMergedMessage :: (?debugLevel :: DebugLevel) => MergedMessage -> HandleMsgM' ()
 handleMergedMessage = \case
   MMPresenceAnnouncement ann             -> handlePresenceAnnouncement ann
   MMPresenceAcknowledgement ack          -> handlePresenceAcknowledgement ack
@@ -356,40 +357,41 @@ handleTick _ = do
     Waiting -> pure ()
     Done    -> pure ()
 
-handleSynchronizePeersTick :: SynchronizePeersTick -> HandleMsgM' ()
+handleSynchronizePeersTick
+  :: (?debugLevel :: DebugLevel)
+  => SynchronizePeersTick
+  -> HandleMsgM' ()
 handleSynchronizePeersTick _ = do
   WorkerState{_wsPeers, _wsCommunicationMode} <- get
+  debugLog $ "[handleSynchronizePeersTick] started, current mode = " ++ show _wsCommunicationMode
   case _wsCommunicationMode of
     AwaitingPeers   -> pure ()
     SendingMessages -> do
-      let latestMsgId :: Maybe MsgId
-          latestMsgId = fmap getMax
-                      $ getOption
-                      $ foldMap (Option . Just . Max . _csNextExpectedMsgId . _psCommunicationState)
-                      $ _wsPeers
-      case latestMsgId of
-        -- No peers available, don't do anything.
-        Nothing       -> pure ()
-        Just latestId -> do
-          let peersToUpdate :: Set NodeId
-              peersToUpdate = M.keysSet
-                            $ M.filter ((< latestId) . _csNextExpectedMsgId . _psCommunicationState) _wsPeers
-          responseSink <- view $ weWorkerPrivatePorts . ppWorkerSharePeerStateRespSink
-          for_ (M.assocs _wsPeers) $ \(nodeToCommunicateWith, ps) ->
-            case ps ^. psCommunicationPorts  of
-              -- Peer not available.
-              Nothing    -> pure ()
-              Just ports ->
-                for_ peersToUpdate $ \peerNode ->
-                  unless (peerNode == nodeToCommunicateWith) $ do
-                    let req = SharePeerStateReq
-                          { _spsreqRequestedPeer = peerNode
-                          , _spsreqResponseSink     = responseSink
-                          }
-                    req `sendTo` (ports ^. cpSharePeerStateSink)
+      myMsgId <- use $ wsLocalCommState . csNextExpectedMsgId
+      let latestMsgId :: MsgId
+          latestMsgId = maximum
+                      $ myMsgId
+                      : (_csNextExpectedMsgId . _psCommunicationState <$> M.elems _wsPeers)
+      debugLog $ "[handleSynchronizePeersTick] latest msg id = " ++ show latestMsgId
+      let peersToUpdate :: Set NodeId
+          peersToUpdate = M.keysSet
+                        $ M.filter ((< latestMsgId) . _csNextExpectedMsgId . _psCommunicationState) _wsPeers
+      debugLog $ "[handleSynchronizePeersTick] peersToUpdate = " ++ show peersToUpdate
+      responseSink <- view $ weWorkerPrivatePorts . ppWorkerSharePeerStateRespSink
+      for_ (M.assocs _wsPeers) $ \(nodeToCommunicateWith, ps) ->
+        case ps ^. psCommunicationPorts  of
+          -- Peer not available.
+          Nothing    -> pure ()
+          Just ports ->
+            for_ peersToUpdate $ \peerNode ->
+              unless (peerNode == nodeToCommunicateWith) $ do
+                let req = SharePeerStateReq
+                      { _spsreqRequestedPeer = peerNode
+                      , _spsreqResponseSink     = responseSink
+                      }
+                req `sendTo` (ports ^. cpSharePeerStateSink)
     Waiting -> pure ()
     Done    -> pure ()
-
 
 handlePeerStateReq :: SharePeerStateReq -> HandleMsgM' ()
 handlePeerStateReq SharePeerStateReq{_spsreqRequestedPeer, _spsreqResponseSink} = do
