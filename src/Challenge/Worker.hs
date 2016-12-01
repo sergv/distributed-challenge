@@ -90,8 +90,8 @@ data WorkerConfig = WorkerConfig
 newtype Microseconds = Microseconds { unMicroseconds :: Int }
   deriving (Show, Eq, Ord, Generic, Typeable)
 
-fromSeconds :: Int -> Microseconds
-fromSeconds = Microseconds .  (* 1000000)
+fromSeconds :: Double -> Microseconds
+fromSeconds = Microseconds . round . (* 1000000)
 
 -- | Generate 'RandomMessage' to be sent next. We may have sent it before, but
 -- haven't got enough acknowledgemens to consider it received.
