@@ -74,14 +74,14 @@ workerOpts = mkWorkerConfig
   <*> (fromSeconds <$>
        option auto
          (long "tick-interval" <>
-          help "File with other nodes" <>
-          value 1 <>
+          help "Send messages to other peers this often" <>
+          value 0.1 <>
           metavar "SECONDS"))
   <*> (fromSeconds <$>
        option auto
          (long "peer-synchronization-interval" <>
           help "Synchronize state with other peers this often" <>
-          value 1 <>
+          value 2 <>
           metavar "SECONDS"))
   where
     mkWorkerConfig seed sendInterval waitInterval slaveNodesFile tickInterval synchronizePeersInterval = do
